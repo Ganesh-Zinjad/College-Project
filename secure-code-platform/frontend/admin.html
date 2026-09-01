@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel — Secure Code Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/animations.css">
+<script>
+  (function () {
+    var t = localStorage.getItem("scp_theme") || "dark";
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
+<style>
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--border-hairline); margin-bottom: var(--sp-5); overflow-x:auto; }
+  .tab-btn { padding:10px 16px; font-size:var(--fs-sm); font-weight:600; color:var(--text-muted); border-bottom:2px solid transparent; white-space:nowrap; }
+  .tab-btn.active { color:var(--accent); border-color:var(--accent); }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+  .health-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border-hairline); font-size:var(--fs-sm); }
+  .health-row:last-child { border-bottom:none; }
+  .health-dot { width:8px;height:8px;border-radius:50%; display:inline-block; margin-right:8px; }
+</style>
+</head>
+<body>
+
+<div id="app-shell-root" class="app-shell"></div>
+
+<script type="module">
+  import { requireAdmin } from "./js/modules/auth.js";
+  import { renderShell } from "./js/modules/shell.js";
+  import { api } from "./js/modules/api.js";
+  import { toast } from "./js/modules/toast.js";
+  import { barChart } from "./js/modules/charts.js";
+  import { escapeHtml, formatDate, timeAgo, initials } from "./js/modules/utils.js";
+
+  if (!(await requireAdmin())) throw new Error("redirecting");
+  await renderShell({ active: "admin", breadcrumb: [{ label: "Dashboard", href: "dashboard.html" }, { label: "Admin Panel" }] });
+
+  const content = document.getElementById("page-content");
+  content.innerHTML = `
+    <div class="page-header"><div><h1>Admin Panel</h1><p>Platform-wide user management, analytics, and system monitoring.</p></div></div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="overview">Overview</button>
+      <button class="tab-btn" data-tab="users">User Management</button>
+      <button class="tab-btn" data-tab="scan-logs">Scan Logs</button>
+      <button class="tab-btn" data-tab="system">System Monitoring</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-overview">
+      <div class="grid grid-cols-4" style="margin-bottom: var(--sp-5);" id="admin-stat-cards">
+        ${Array(4).fill('<div class="card skeleton-card"></div>').join("")}
+      </div>
+      <div class="grid grid-cols-2">
+        <div class="card"><h3 style="margin-bottom:var(--sp-4);">Severity Distribution (All Scans)</h3><div id="severity-chart"></div></div>
+        <div class="card"><h3 style="margin-bottom:var(--sp-4);">Engine Usage</h3><div id="engine-usage-table"></div></div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-users">
+      <div class="card" style="padding:0;">
+        <div style="padding:var(--sp-4) var(--sp-4) 0;">
+          <div class="search-box" style="width:280px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="search" id="user-search" placeholder="Search users…">
+          </div>
+        </div>
+        <div id="users-table-wrap" style="margin-top:var(--sp-4);"></div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-scan-logs">
+      <div class="card" style="padding:0;"><div id="scan-logs-table-wrap"></div></div>
+    </div>
+
+    <div class="tab-panel" id="tab-system">
+      <div class="grid grid-cols-2">
+        <div class="card">
+          <h3 style="margin-bottom:var(--sp-4);">Engine Health</h3>
+          <div id="engine-health"></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom:var(--sp-4);">Platform Stats</h3>
+          <div id="platform-stats"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
+      if (btn.dataset.tab === "users" && !usersLoaded) loadUsers();
+      if (btn.dataset.tab === "scan-logs" && !scanLogsLoaded) loadScanLogs();
+      if (btn.dataset.tab === "system" && !systemLoaded) loadSystemHealth();
+    });
+  });
+
+  // ---- Overview ----
+  try {
+    const analytics = await api.get("/admin/analytics");
+    document.getElementById("admin-stat-cards").innerHTML = `
+      <div class="card stat-card"><span class="stat-card-label">Total Users</span><div class="stat-card-value">${analytics.total_users}</div></div>
+      <div class="card stat-card"><span class="stat-card-label">Total Scans</span><div class="stat-card-value">${analytics.total_scans}</div></div>
+      <div class="card stat-card"><span class="stat-card-label">Scans Today</span><div class="stat-card-value">${analytics.scans_today}</div></div>
+      <div class="card stat-card"><span class="stat-card-label">Secure Rate</span><div class="stat-card-value" style="color:var(--verdict-secure);">${analytics.overall_secure_rate}%</div></div>
+    `;
+    document.getElementById("severity-chart").innerHTML = analytics.severity_distribution.length
+      ? barChart(analytics.severity_distribution, { valueKey: "count", labelKey: "severity", height: 200 })
+      : `<p class="hint">No findings recorded yet.</p>`;
+    document.getElementById("engine-usage-table").innerHTML = analytics.engine_usage.length
+      ? `<table class="data-table"><thead><tr><th>Engine</th><th>Scans Run</th><th>Avg Duration</th></tr></thead><tbody>
+          ${analytics.engine_usage.map((e) => `<tr><td style="text-transform:uppercase; font-weight:600;">${e.engine}</td><td>${e.scans_run}</td><td>${e.avg_duration_ms}ms</td></tr>`).join("")}
+        </tbody></table>`
+      : `<p class="hint">No engine runs recorded yet.</p>`;
+  } catch (err) {
+    toast.error("Couldn't load analytics", err.message);
+  }
+
+  // ---- Users ----
+  let usersLoaded = false;
+  async function loadUsers(search = "") {
+    const wrap = document.getElementById("users-table-wrap");
+    wrap.innerHTML = `<div style="padding:var(--sp-4);"><div class="skeleton-text" style="height:40px;"></div></div>`;
+    try {
+      const users = await api.get(`/admin/users?search=${encodeURIComponent(search)}`);
+      usersLoaded = true;
+      wrap.innerHTML = `
+        <table class="data-table">
+          <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Scans</th><th>Joined</th><th>Last Login</th><th></th></tr></thead>
+          <tbody>
+            ${users.map((u) => `
+              <tr>
+                <td><div class="flex items-center gap-2"><span class="avatar" style="width:28px;height:28px;font-size:11px; background:${u.avatar_color};">${initials(u.full_name)}</span>
+                  <div><strong>${escapeHtml(u.full_name)}</strong><div class="cell-muted" style="font-size:var(--fs-xs);">${escapeHtml(u.email)}</div></div></div></td>
+                <td><span class="badge ${u.role === "admin" ? "badge-engine-ai" : "badge-neutral"}">${u.role}</span></td>
+                <td><span class="badge ${u.is_active ? "badge-low" : "badge-critical"}">${u.is_active ? "Active" : "Disabled"}</span></td>
+                <td>${u.total_scans}</td>
+                <td class="cell-muted">${formatDate(u.created_at, { withTime: false })}</td>
+                <td class="cell-muted">${u.last_login_at ? timeAgo(u.last_login_at) : "Never"}</td>
+                <td>
+                  <div class="flex gap-2">
+                    <button class="btn btn-ghost btn-sm" data-toggle-active="${u.id}" data-active="${u.is_active}">${u.is_active ? "Disable" : "Enable"}</button>
+                    <button class="btn btn-ghost btn-sm" data-toggle-role="${u.id}" data-role="${u.role}">Make ${u.role === "admin" ? "User" : "Admin"}</button>
+                    <button class="btn btn-ghost btn-sm" data-delete-user="${u.id}" style="color:var(--verdict-vulnerable);">Delete</button>
+                  </div>
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+
+      wrap.querySelectorAll("[data-toggle-active]").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          try {
+            await api.patch(`/admin/users/${btn.dataset.toggleActive}`, { is_active: btn.dataset.active !== "true" });
+            toast.success("User updated");
+            loadUsers(search);
+          } catch (err) { toast.error("Couldn't update user", err.message); }
+        })
+      );
+      wrap.querySelectorAll("[data-toggle-role]").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          try {
+            await api.patch(`/admin/users/${btn.dataset.toggleRole}`, { role: btn.dataset.role === "admin" ? "user" : "admin" });
+            toast.success("User updated");
+            loadUsers(search);
+          } catch (err) { toast.error("Couldn't update user", err.message); }
+        })
+      );
+      wrap.querySelectorAll("[data-delete-user]").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          if (!confirm("Delete this user and all their scans? This cannot be undone.")) return;
+          try {
+            await api.delete(`/admin/users/${btn.dataset.deleteUser}`);
+            toast.success("User deleted");
+            loadUsers(search);
+          } catch (err) { toast.error("Couldn't delete user", err.message); }
+        })
+      );
+    } catch (err) {
+      wrap.innerHTML = `<div class="empty-state"><p>${escapeHtml(err.message)}</p></div>`;
+    }
+  }
+  document.getElementById("user-search").addEventListener("input", (e) => loadUsers(e.target.value));
+
+  // ---- Scan logs ----
+  let scanLogsLoaded = false;
+  async function loadScanLogs() {
+    const wrap = document.getElementById("scan-logs-table-wrap");
+    wrap.innerHTML = `<div style="padding:var(--sp-4);"><div class="skeleton-text" style="height:40px;"></div></div>`;
+    try {
+      const data = await api.get("/admin/scan-logs?page=1&page_size=50");
+      scanLogsLoaded = true;
+      if (!data.items.length) {
+        wrap.innerHTML = `<div class="empty-state"><h3>No scans yet</h3></div>`;
+        return;
+      }
+      wrap.innerHTML = `
+        <table class="data-table">
+          <thead><tr><th>Scan</th><th>Owner</th><th>Status</th><th>Verdict</th><th>Date</th></tr></thead>
+          <tbody>
+            ${data.items.map((s) => `
+              <tr onclick="window.location.href='results.html?scan_id=${s.id}'">
+                <td><strong>${escapeHtml(s.name)}</strong></td>
+                <td class="cell-muted">${escapeHtml(s.owner_email)}</td>
+                <td><span class="badge badge-neutral" style="text-transform:capitalize;">${s.status}</span></td>
+                <td>${s.verdict === "secure" ? '<span class="verdict-seal secure"><span class="seal-dot"></span>Secure</span>' : s.verdict === "vulnerable" ? '<span class="verdict-seal vulnerable"><span class="seal-dot"></span>Vulnerable</span>' : '<span class="verdict-seal pending"><span class="seal-dot"></span>Pending</span>'}</td>
+                <td class="cell-muted">${formatDate(s.created_at)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+    } catch (err) {
+      wrap.innerHTML = `<div class="empty-state"><p>${escapeHtml(err.message)}</p></div>`;
+    }
+  }
+
+  // ---- System health ----
+  let systemLoaded = false;
+  async function loadSystemHealth() {
+    try {
+      const health = await api.get("/admin/system-health");
+      systemLoaded = true;
+      const statusDot = (ok) => `<span class="health-dot" style="background:${ok ? "var(--verdict-secure)" : "var(--verdict-pending)"};"></span>`;
+
+      document.getElementById("engine-health").innerHTML = `
+        <div class="health-row"><span>${statusDot(true)}API Server</span><span class="badge badge-low">${health.api_status}</span></div>
+        <div class="health-row"><span>${statusDot(true)}Database</span><span class="badge badge-low">${health.database_status}</span></div>
+        <div class="health-row"><span>${statusDot(health.codeql_engine_status === "available")}CodeQL Engine</span><span class="badge ${health.codeql_engine_status === "available" ? "badge-low" : "badge-medium"}">${health.codeql_engine_status}</span></div>
+        <div class="health-row"><span>${statusDot(health.ai_engine_status === "configured")}AI Auditor</span><span class="badge ${health.ai_engine_status === "configured" ? "badge-low" : "badge-medium"}">${health.ai_engine_status}</span></div>
+        <div class="health-row"><span>${statusDot(true)}ML Classifier</span><span class="badge badge-low">${health.ml_engine_status}</span></div>`;
+
+      document.getElementById("platform-stats").innerHTML = `
+        <div class="health-row"><span>Uptime</span><strong>${Math.floor(health.uptime_seconds / 60)} min</strong></div>
+        <div class="health-row"><span>Total Users</span><strong>${health.total_users}</strong></div>
+        <div class="health-row"><span>Total Scans</span><strong>${health.total_scans}</strong></div>
+        <div class="health-row"><span>Storage Used</span><strong>${health.storage_used_mb} MB</strong></div>`;
+    } catch (err) {
+      toast.error("Couldn't load system health", err.message);
+    }
+  }
+</script>
+</body>
+</html>

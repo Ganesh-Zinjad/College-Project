@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create Account — Secure Code Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/animations.css">
+<script>
+  (function () {
+    var t = localStorage.getItem("scp_theme") || "dark";
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
+</head>
+<body>
+
+<div class="auth-shell">
+  <div class="auth-panel">
+    <div class="auth-form-wrap animate-in">
+      <div class="flex items-center gap-3" style="margin-bottom: var(--sp-6);">
+        <svg width="36" height="36" viewBox="0 0 34 34" fill="none">
+          <path d="M17 3 27 8v9c0 8-6.5 12.5-10 14-3.5-1.5-10-6-10-14V8l10-5Z" fill="var(--accent-dim)" stroke="var(--accent)" stroke-width="1.6"/>
+          <circle cx="17" cy="14" r="3" fill="var(--accent)"/>
+          <circle cx="11" cy="20" r="2" fill="var(--engine-codeql)"/>
+          <circle cx="23" cy="20" r="2" fill="var(--engine-ml)"/>
+        </svg>
+        <div>
+          <div style="font-family:var(--font-display); font-weight:700;">SecureCode</div>
+          <div style="font-size:10px; color:var(--text-muted); letter-spacing:0.06em;">TRIPLE JUDGE ENGINE</div>
+        </div>
+      </div>
+
+      <h1>Create your account</h1>
+      <p style="margin-top:4px; margin-bottom: var(--sp-6);">Start scanning code for vulnerabilities in minutes.</p>
+
+      <form id="register-form" novalidate>
+        <div class="field" id="name-field">
+          <label for="full_name">Full name</label>
+          <input class="input" type="text" id="full_name" name="full_name" placeholder="Ada Lovelace" autocomplete="name" required>
+          <span class="error-text">Enter your full name</span>
+        </div>
+
+        <div class="field" id="email-field">
+          <label for="email">Email address</label>
+          <input class="input" type="email" id="email" name="email" placeholder="you@company.com" autocomplete="email" required>
+          <span class="error-text">Enter a valid email address</span>
+        </div>
+
+        <div class="field" id="password-field">
+          <label for="password">Password</label>
+          <div class="input-group">
+            <input class="input" type="password" id="password" name="password" placeholder="••••••••" autocomplete="new-password" required>
+            <button type="button" class="input-group-icon" id="toggle-password" aria-label="Show password">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <div class="password-strength"><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>
+          <span class="hint" id="password-strength-label">At least 8 characters, with upper/lowercase, a number, and a symbol</span>
+          <span class="error-text">Password does not meet requirements</span>
+        </div>
+
+        <div class="field" id="confirm-field">
+          <label for="confirm_password">Confirm password</label>
+          <input class="input" type="password" id="confirm_password" name="confirm_password" placeholder="••••••••" autocomplete="new-password" required>
+          <span class="error-text">Passwords do not match</span>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="register-submit-btn">Create account</button>
+      </form>
+
+      <p style="text-align:center; margin-top: var(--sp-5); font-size: var(--fs-sm);">
+        Already have an account? <a href="index.html">Sign in</a>
+      </p>
+    </div>
+  </div>
+
+  <div class="auth-showcase">
+    <div style="max-width:420px; padding: var(--sp-6); position:relative; z-index:1;">
+      <h2 class="animate-in delay-1" style="margin-bottom: var(--sp-4);">Everything you need to ship secure AI-generated code</h2>
+      <ul class="animate-in delay-2" style="display:flex; flex-direction:column; gap:14px;">
+        <li class="flex items-center gap-3"><span class="stat-card-icon">✓</span> Static, AI, and ML analysis in one scan</li>
+        <li class="flex items-center gap-3"><span class="stat-card-icon">✓</span> CWE / CVE / OWASP mapped findings</li>
+        <li class="flex items-center gap-3"><span class="stat-card-icon">✓</span> Suggested fixes with secure code examples</li>
+        <li class="flex items-center gap-3"><span class="stat-card-icon">✓</span> PDF, JSON, and HTML exportable reports</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { register, redirectIfAuthenticated, passwordStrength } from "./js/modules/auth.js";
+  import { toast } from "./js/modules/toast.js";
+  import { setButtonLoading } from "./js/modules/utils.js";
+
+  redirectIfAuthenticated();
+
+  document.getElementById("toggle-password").addEventListener("click", (e) => {
+    const input = document.getElementById("password");
+    const isPassword = input.type === "password";
+    input.type = isPassword ? "text" : "password";
+    e.currentTarget.setAttribute("aria-label", isPassword ? "Hide password" : "Show password");
+  });
+
+  const passwordInput = document.getElementById("password");
+  const bars = document.querySelectorAll(".password-strength .bar");
+  const strengthLabel = document.getElementById("password-strength-label");
+  passwordInput.addEventListener("input", () => {
+    const val = passwordInput.value;
+    bars.forEach((b) => (b.className = "bar"));
+    if (!val) {
+      strengthLabel.textContent = "At least 8 characters, with upper/lowercase, a number, and a symbol";
+      return;
+    }
+    const strength = passwordStrength(val);
+    const counts = { weak: 1, medium: 2, strong: 3 };
+    for (let i = 0; i < counts[strength]; i++) bars[i].classList.add(strength);
+    strengthLabel.textContent = strength === "weak" ? "Weak — add length and variety" : strength === "medium" ? "Medium — almost there" : "Strong password";
+  });
+
+  const form = document.getElementById("register-form");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fullName = document.getElementById("full_name").value.trim();
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    const confirmPassword = document.getElementById("confirm_password").value;
+
+    document.getElementById("name-field").classList.toggle("has-error", !fullName);
+    document.getElementById("email-field").classList.toggle("has-error", !email);
+    document.getElementById("password-field").classList.toggle("has-error", password.length < 8);
+    document.getElementById("confirm-field").classList.toggle("has-error", password !== confirmPassword);
+    if (!fullName || !email || password.length < 8 || password !== confirmPassword) return;
+
+    const btn = document.getElementById("register-submit-btn");
+    setButtonLoading(btn, true, "Creating account…");
+    try {
+      await register({ fullName, email, password, confirmPassword });
+      window.location.href = "index.html?registered=1";
+    } catch (err) {
+      toast.error("Registration failed", err.message);
+      setButtonLoading(btn, false);
+    }
+  });
+</script>
+</body>
+</html>

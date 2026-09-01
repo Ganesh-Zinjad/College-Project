@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile — Secure Code Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/animations.css">
+<script>
+  (function () {
+    var t = localStorage.getItem("scp_theme") || "dark";
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
+<style>
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--border-hairline); margin-bottom: var(--sp-5); }
+  .tab-btn { padding:10px 16px; font-size:var(--fs-sm); font-weight:600; color:var(--text-muted); border-bottom:2px solid transparent; }
+  .tab-btn.active { color:var(--accent); border-color:var(--accent); }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+  .key-row { display:flex; align-items:center; justify-content:space-between; padding:var(--sp-3) 0; border-bottom:1px solid var(--border-hairline); }
+  .key-row:last-child { border-bottom:none; }
+</style>
+</head>
+<body>
+
+<div id="app-shell-root" class="app-shell"></div>
+
+<script type="module">
+  import { requireAuth, getCurrentUser } from "./js/modules/auth.js";
+  import { renderShell } from "./js/modules/shell.js";
+  import { api } from "./js/modules/api.js";
+  import { toast } from "./js/modules/toast.js";
+  import { escapeHtml, initials, formatDate, timeAgo, setButtonLoading, copyToClipboard } from "./js/modules/utils.js";
+
+  if (!requireAuth()) throw new Error("redirecting");
+  const user = await renderShell({ active: "profile", breadcrumb: [{ label: "Dashboard", href: "dashboard.html" }, { label: "Profile" }] });
+
+  const content = document.getElementById("page-content");
+  content.innerHTML = `
+    <div class="page-header"><div><h1>Profile</h1><p>Manage your account details, security, and preferences.</p></div></div>
+
+    <div class="flex items-center gap-4" style="margin-bottom: var(--sp-6);">
+      <span class="avatar" style="width:64px;height:64px;font-size:22px; background:${user.avatar_color};">${initials(user.full_name)}</span>
+      <div>
+        <h2>${escapeHtml(user.full_name)}</h2>
+        <p>${escapeHtml(user.email)} ${user.is_email_verified ? '<span class="badge badge-low" style="margin-left:6px;">Verified</span>' : '<span class="badge badge-medium" style="margin-left:6px;">Unverified</span>'}</p>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="details">Personal Details</button>
+      <button class="tab-btn" data-tab="security">Password</button>
+      <button class="tab-btn" data-tab="api-keys">API Keys</button>
+      <button class="tab-btn" data-tab="notifications">Notifications</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-details">
+      <div class="card" style="max-width:480px;">
+        <form id="details-form">
+          <div class="field">
+            <label for="full_name">Full name</label>
+            <input class="input" type="text" id="full_name" value="${escapeHtml(user.full_name)}" required>
+          </div>
+          <div class="field">
+            <label for="email">Email address</label>
+            <input class="input" type="email" value="${escapeHtml(user.email)}" disabled>
+            <span class="hint">Email cannot be changed. Contact an administrator if needed.</span>
+          </div>
+          <button type="submit" class="btn btn-primary" id="save-details-btn">Save changes</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-security">
+      <div class="card" style="max-width:480px;">
+        <form id="password-form">
+          <div class="field">
+            <label for="current_password">Current password</label>
+            <input class="input" type="password" id="current_password" autocomplete="current-password" required>
+          </div>
+          <div class="field">
+            <label for="new_password">New password</label>
+            <input class="input" type="password" id="new_password" autocomplete="new-password" required>
+          </div>
+          <div class="field">
+            <label for="confirm_new_password">Confirm new password</label>
+            <input class="input" type="password" id="confirm_new_password" autocomplete="new-password" required>
+          </div>
+          <button type="submit" class="btn btn-primary" id="save-password-btn">Update password</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-api-keys">
+      <div class="card">
+        <div class="flex items-center justify-between" style="margin-bottom: var(--sp-4);">
+          <div><h3>API Keys</h3><p style="font-size:var(--fs-xs);">Use these to authenticate programmatic scans via the REST API.</p></div>
+          <button class="btn btn-primary btn-sm" id="create-key-btn">+ New Key</button>
+        </div>
+        <div id="api-keys-list"><div class="skeleton-text" style="height:40px;"></div></div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-notifications">
+      <div class="card" style="max-width:480px;">
+        <div class="flex items-center justify-between" style="padding:var(--sp-3) 0; border-bottom:1px solid var(--border-hairline);">
+          <div><strong>Scan complete</strong><div class="hint">Email me when a scan finishes</div></div>
+          <label class="toggle"><input type="checkbox" id="notify-complete" ${user.notify_email_on_scan_complete !== false ? "checked" : ""}><span class="toggle-track"></span></label>
+        </div>
+        <div class="flex items-center justify-between" style="padding:var(--sp-3) 0; border-bottom:1px solid var(--border-hairline);">
+          <div><strong>Critical vulnerabilities</strong><div class="hint">Email me when critical issues are found</div></div>
+          <label class="toggle"><input type="checkbox" id="notify-critical" ${user.notify_email_on_critical_vuln !== false ? "checked" : ""}><span class="toggle-track"></span></label>
+        </div>
+        <div class="flex items-center justify-between" style="padding:var(--sp-3) 0;">
+          <div><strong>Weekly digest</strong><div class="hint">A weekly summary of your security posture</div></div>
+          <label class="toggle"><input type="checkbox" id="notify-digest"><span class="toggle-track"></span></label>
+        </div>
+        <button class="btn btn-primary" id="save-notifications-btn" style="margin-top: var(--sp-4);">Save preferences</button>
+      </div>
+    </div>
+  `;
+
+  // ---- Tabs ----
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
+    });
+  });
+
+  // ---- Personal details ----
+  document.getElementById("details-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById("save-details-btn");
+    setButtonLoading(btn, true, "Saving…");
+    try {
+      await api.put("/profile", { full_name: document.getElementById("full_name").value.trim() });
+      toast.success("Profile updated");
+    } catch (err) {
+      toast.error("Couldn't save", err.message);
+    } finally {
+      setButtonLoading(btn, false);
+    }
+  });
+
+  // ---- Password ----
+  document.getElementById("password-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const current = document.getElementById("current_password").value;
+    const next = document.getElementById("new_password").value;
+    const confirm = document.getElementById("confirm_new_password").value;
+    if (next !== confirm) { toast.error("Passwords don't match"); return; }
+
+    const btn = document.getElementById("save-password-btn");
+    setButtonLoading(btn, true, "Updating…");
+    try {
+      await api.post("/profile/change-password", { current_password: current, new_password: next, confirm_password: confirm });
+      toast.success("Password updated");
+      e.target.reset();
+    } catch (err) {
+      toast.error("Couldn't update password", err.message);
+    } finally {
+      setButtonLoading(btn, false);
+    }
+  });
+
+  // ---- API keys ----
+  async function loadApiKeys() {
+    const list = document.getElementById("api-keys-list");
+    try {
+      const keys = await api.get("/profile/api-keys");
+      if (!keys.length) {
+        list.innerHTML = `<p class="hint">No API keys yet. Create one to access the platform programmatically.</p>`;
+        return;
+      }
+      list.innerHTML = keys
+        .map(
+          (k) => `
+        <div class="key-row">
+          <div>
+            <strong>${escapeHtml(k.label)}</strong>
+            <div class="cell-mono cell-muted" style="font-size:var(--fs-xs);">${escapeHtml(k.key_prefix)}</div>
+            <div class="hint">Created ${formatDate(k.created_at, { withTime: false })} · Last used ${k.last_used_at ? timeAgo(k.last_used_at) : "never"}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" data-revoke="${k.id}" style="color:var(--verdict-vulnerable);">Revoke</button>
+        </div>`
+        )
+        .join("");
+      list.querySelectorAll("[data-revoke]").forEach((btn) =>
+        btn.addEventListener("click", async () => {
+          if (!confirm("Revoke this API key? Any integration using it will stop working immediately.")) return;
+          try {
+            await api.delete(`/profile/api-keys/${btn.dataset.revoke}`);
+            toast.success("Key revoked");
+            loadApiKeys();
+          } catch (err) {
+            toast.error("Couldn't revoke key", err.message);
+          }
+        })
+      );
+    } catch (err) {
+      list.innerHTML = `<p class="hint">Couldn't load API keys.</p>`;
+    }
+  }
+  loadApiKeys();
+
+  document.getElementById("create-key-btn").addEventListener("click", async () => {
+    const label = prompt("Name this API key (e.g. \"CI Pipeline\"):");
+    if (!label) return;
+    try {
+      const result = await api.post("/profile/api-keys", { label });
+      loadApiKeys();
+      showNewKeyModal(result.raw_key);
+    } catch (err) {
+      toast.error("Couldn't create key", err.message);
+    }
+  });
+
+  function showNewKeyModal(rawKey) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal">
+        <div class="modal-header"><h3>API key created</h3></div>
+        <p style="margin-bottom:var(--sp-3);">Copy this key now — for security, you won't be able to see it again.</p>
+        <div class="code-block" style="background:var(--bg-canvas); border:1px solid var(--border-hairline); padding:12px; border-radius:8px; font-family:var(--font-mono); font-size:13px; word-break:break-all;">${escapeHtml(rawKey)}</div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="copy-key-btn">Copy to clipboard</button>
+          <button class="btn btn-primary" id="close-key-modal">Done</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector("#copy-key-btn").addEventListener("click", () => {
+      copyToClipboard(rawKey).then(() => toast.success("Copied to clipboard"));
+    });
+    overlay.querySelector("#close-key-modal").addEventListener("click", () => overlay.remove());
+  }
+
+  // ---- Notifications ----
+  document.getElementById("save-notifications-btn").addEventListener("click", async () => {
+    const btn = document.getElementById("save-notifications-btn");
+    setButtonLoading(btn, true, "Saving…");
+    try {
+      await api.put("/profile/notifications", {
+        notify_email_on_scan_complete: document.getElementById("notify-complete").checked,
+        notify_email_on_critical_vuln: document.getElementById("notify-critical").checked,
+        notify_weekly_digest: document.getElementById("notify-digest").checked,
+      });
+      toast.success("Preferences saved");
+    } catch (err) {
+      toast.error("Couldn't save preferences", err.message);
+    } finally {
+      setButtonLoading(btn, false);
+    }
+  });
+</script>
+</body>
+</html>

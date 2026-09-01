@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scan Progress — Secure Code Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/animations.css">
+<script>
+  (function () {
+    var t = localStorage.getItem("scp_theme") || "dark";
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
+<style>
+  .log-console {
+    background: #05080c; border: 1px solid var(--border-hairline); border-radius: var(--radius-md);
+    padding: var(--sp-4); height: 320px; overflow-y: auto; font-family: var(--font-mono); font-size: 12.5px;
+  }
+  [data-theme="light"] .log-console { background: #0e1218; }
+  .log-line { display:flex; gap:10px; padding: 3px 0; line-height:1.6; }
+  .log-line .ts { color: #4d5867; flex-shrink:0; }
+  .log-line .engine-tag { flex-shrink:0; font-weight:700; }
+  .log-line.info .engine-tag { color: var(--text-muted); }
+  .log-line.success .engine-tag { color: var(--verdict-secure); }
+  .log-line.warn .engine-tag { color: var(--verdict-pending); }
+  .log-line.error .engine-tag { color: var(--verdict-vulnerable); }
+  .log-line .msg { color: #c8d1dc; word-break: break-word; }
+</style>
+</head>
+<body>
+
+<div id="app-shell-root" class="app-shell"></div>
+
+<script type="module">
+  import { requireAuth } from "./js/modules/auth.js";
+  import { renderShell } from "./js/modules/shell.js";
+  import { api } from "./js/modules/api.js";
+  import { toast } from "./js/modules/toast.js";
+  import { watchScanProgress } from "./js/modules/websocket.js";
+  import { qs, escapeHtml } from "./js/modules/utils.js";
+
+  if (!requireAuth()) throw new Error("redirecting");
+  await renderShell({ active: "scan-progress", breadcrumb: [{ label: "Dashboard", href: "dashboard.html" }, { label: "Scan Progress" }] });
+
+  const scanId = qs("scan_id");
+  const content = document.getElementById("page-content");
+
+  if (!scanId) {
+    content.innerHTML = `<div class="empty-state"><h3>No scan selected</h3><p>Start a new scan to see its progress here.</p><a href="upload.html" class="btn btn-primary" style="margin-top:var(--sp-4);">New Scan</a></div>`;
+    throw new Error("no scan id");
+  }
+
+  content.innerHTML = `
+    <div class="page-header"><div><h1>Scan in Progress</h1><p>Watch each engine deliver its verdict in real time.</p></div></div>
+
+    <div class="card" style="margin-bottom: var(--sp-5);">
+      <div class="flex items-center justify-between" style="margin-bottom: var(--sp-3);">
+        <div class="flex items-center gap-3">
+          <span class="spinner" id="status-spinner" style="color:var(--accent);"></span>
+          <strong id="status-label">Initializing…</strong>
+        </div>
+        <span id="progress-pct" style="font-family:var(--font-mono); color:var(--text-muted);">0%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill" style="width:0%;"></div></div>
+    </div>
+
+    <div class="judge-row" id="judge-seals" style="margin-bottom: var(--sp-5);"></div>
+
+    <div class="card">
+      <div class="flex items-center justify-between" style="margin-bottom: var(--sp-3);">
+        <h3>Live Logs</h3>
+        <span class="badge badge-neutral" id="log-count-badge">0 lines</span>
+      </div>
+      <div class="log-console" id="log-console"></div>
+    </div>
+
+    <div id="done-actions" style="display:none; margin-top: var(--sp-5); text-align:center;">
+      <a href="results.html?scan_id=${scanId}" class="btn btn-primary">View Full Results →</a>
+    </div>
+  `;
+
+  const ENGINES = [
+    { key: "codeql", name: "CodeQL", badgeClass: "badge-engine-codeql" },
+    { key: "ai", name: "AI Auditor", badgeClass: "badge-engine-ai" },
+    { key: "ml", name: "ML Model", badgeClass: "badge-engine-ml" },
+  ];
+  const engineState = { codeql: "pending", ai: "pending", ml: "pending" };
+
+  function renderJudgeSeals(currentEngine) {
+    document.getElementById("judge-seals").innerHTML = ENGINES.map((e) => {
+      let state = engineState[e.key];
+      if (state === "pending" && currentEngine === e.key) state = "running";
+      return `
+        <div class="judge-seal" data-state="${state}">
+          <div class="judge-seal-head">
+            <span class="judge-seal-name">${e.name}</span>
+            <span class="badge ${e.badgeClass}">${stateLabel(state)}</span>
+          </div>
+          <div style="font-size:var(--fs-xs); color:var(--text-muted);">${stateDescription(state)}</div>
+        </div>`;
+    }).join("");
+  }
+
+  function stateLabel(state) {
+    return { pending: "Waiting", running: "Running", secure: "Secure", vulnerable: "Flagged", error: "Skipped" }[state] || state;
+  }
+  function stateDescription(state) {
+    return {
+      pending: "Queued for analysis",
+      running: "Analyzing now…",
+      secure: "No issues found",
+      vulnerable: "Issues detected",
+      error: "Did not run",
+    }[state] || "";
+  }
+
+  renderJudgeSeals("");
+
+  const logConsole = document.getElementById("log-console");
+  let renderedLogCount = 0;
+
+  function appendLogs(logs) {
+    logs.forEach((log) => {
+      const line = document.createElement("div");
+      line.className = `log-line ${log.level}`;
+      const time = new Date(log.created_at.endsWith("Z") ? log.created_at : log.created_at + "Z").toLocaleTimeString();
+      line.innerHTML = `<span class="ts">${time}</span><span class="engine-tag">[${escapeHtml(log.engine.toUpperCase())}]</span><span class="msg">${escapeHtml(log.message)}</span>`;
+      logConsole.appendChild(line);
+      renderedLogCount++;
+    });
+    document.getElementById("log-count-badge").textContent = `${renderedLogCount} line${renderedLogCount !== 1 ? "s" : ""}`;
+    logConsole.scrollTop = logConsole.scrollHeight;
+  }
+
+  function updateStatus(status) {
+    document.getElementById("progress-pct").textContent = `${status.progress_percent}%`;
+    document.getElementById("progress-fill").style.width = `${status.progress_percent}%`;
+
+    const labelMap = { queued: "Queued — waiting to start…", running: "Scan running…", completed: "Scan complete", failed: "Scan failed", cancelled: "Scan cancelled" };
+    document.getElementById("status-label").textContent = labelMap[status.status] || status.status;
+
+    // Mark engines complete as progress advances past their stage threshold.
+    if (status.progress_percent > 10 && engineState.codeql === "pending") engineState.codeql = "secure";
+    if (status.progress_percent > 45 && engineState.ai === "pending") engineState.ai = "secure";
+    if (status.progress_percent >= 100 && engineState.ml === "pending") engineState.ml = "secure";
+
+    renderJudgeSeals(status.current_engine);
+
+    const spinner = document.getElementById("status-spinner");
+    if (["completed", "failed", "cancelled"].includes(status.status)) {
+      spinner.style.display = "none";
+    }
+  }
+
+  // Normalize the websocket "logs" entry shape (engine_name -> engine) for the renderer above.
+  function normalizeLogs(logs) {
+    return logs.map((l) => ({ ...l, engine: l.engine_name || l.engine || "system" }));
+  }
+
+  const stop = watchScanProgress(scanId, {
+    onLogs: (logs) => appendLogs(normalizeLogs(logs)),
+    onStatus: updateStatus,
+    onDone: async () => {
+      try {
+        const result = await api.get(`/results/${scanId}`);
+        applyFinalEngineResults(result.engine_results);
+        document.getElementById("done-actions").style.display = "block";
+        if (result.verdict === "secure") toast.success("Scan complete", "All engines agree — project is secure.");
+        else toast.warning("Scan complete", "One or more engines flagged vulnerabilities.");
+      } catch {
+        document.getElementById("done-actions").style.display = "block";
+      }
+    },
+  });
+
+  function applyFinalEngineResults(results) {
+    results.forEach((r) => {
+      engineState[r.engine_name] = r.verdict === "secure" ? "secure" : r.verdict === "vulnerable" ? "vulnerable" : "error";
+    });
+    ENGINES.forEach((e) => {
+      if (!(e.key in Object.fromEntries(results.map((r) => [r.engine_name, true])))) {
+        // engine wasn't run at all (disabled for this scan)
+        if (engineState[e.key] === "pending") engineState[e.key] = "error";
+      }
+    });
+    renderJudgeSeals("");
+  }
+
+  window.addEventListener("beforeunload", stop);
+
+  // In case the scan was already finished before this page loaded (e.g. revisited via back button).
+  try {
+    const initial = await api.get(`/scan/${scanId}/progress`);
+    updateStatus(initial);
+    appendLogs(normalizeLogs(initial.logs));
+    if (["completed", "failed", "cancelled"].includes(initial.status)) {
+      const result = await api.get(`/results/${scanId}`);
+      applyFinalEngineResults(result.engine_results);
+      document.getElementById("done-actions").style.display = "block";
+    }
+  } catch (err) {
+    toast.error("Couldn't load scan", err.message);
+  }
+</script>
+</body>
+</html>

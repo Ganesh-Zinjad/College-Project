@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>History — Secure Code Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/animations.css">
+<script>
+  (function () {
+    var t = localStorage.getItem("scp_theme") || "dark";
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
+</head>
+<body>
+
+<div id="app-shell-root" class="app-shell"></div>
+
+<script type="module">
+  import { requireAuth } from "./js/modules/auth.js";
+  import { renderShell } from "./js/modules/shell.js";
+  import { api } from "./js/modules/api.js";
+  import { toast } from "./js/modules/toast.js";
+  import { formatDate, escapeHtml, debounce, qs, setQs } from "./js/modules/utils.js";
+
+  if (!requireAuth()) throw new Error("redirecting");
+  await renderShell({ active: "history", breadcrumb: [{ label: "Dashboard", href: "dashboard.html" }, { label: "History" }] });
+
+  const content = document.getElementById("page-content");
+  let state = { search: qs("search", ""), status: qs("status", ""), verdict: qs("verdict", ""), page: Number(qs("page", 1)) };
+
+  content.innerHTML = `
+    <div class="page-header">
+      <div><h1>Scan History</h1><p>Search, filter, and manage all your past scans.</p></div>
+      <div class="page-header-actions"><a href="upload.html" class="btn btn-primary">+ New Scan</a></div>
+    </div>
+
+    <div class="card" style="margin-bottom: var(--sp-5);">
+      <div class="flex gap-3" style="flex-wrap:wrap;">
+        <div class="search-box" style="width:280px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="search" id="search-input" placeholder="Search by scan name…" value="${escapeHtml(state.search)}">
+        </div>
+        <select class="select" id="status-filter" style="width:160px;">
+          <option value="">All statuses</option>
+          <option value="completed">Completed</option>
+          <option value="running">Running</option>
+          <option value="queued">Queued</option>
+          <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <select class="select" id="verdict-filter" style="width:160px;">
+          <option value="">All verdicts</option>
+          <option value="secure">Secure</option>
+          <option value="vulnerable">Vulnerable</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;">
+      <div id="history-table-wrap"></div>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  `;
+
+  document.getElementById("status-filter").value = state.status;
+  document.getElementById("verdict-filter").value = state.verdict;
+
+  const searchInput = document.getElementById("search-input");
+  searchInput.addEventListener("input", debounce(() => { state.search = searchInput.value; state.page = 1; load(); }, 350));
+  document.getElementById("status-filter").addEventListener("change", (e) => { state.status = e.target.value; state.page = 1; load(); });
+  document.getElementById("verdict-filter").addEventListener("change", (e) => { state.verdict = e.target.value; state.page = 1; load(); });
+
+  async function load() {
+    setQs(state);
+    const wrap = document.getElementById("history-table-wrap");
+    wrap.innerHTML = `<div style="padding:var(--sp-5);">${Array(4).fill('<div class="skeleton-text" style="height:48px;"></div>').join("")}</div>`;
+
+    try {
+      const params = new URLSearchParams();
+      if (state.search) params.set("search", state.search);
+      if (state.status) params.set("status", state.status);
+      if (state.verdict) params.set("verdict", state.verdict);
+      params.set("page", state.page);
+      params.set("page_size", 10);
+
+      const data = await api.get(`/history?${params.toString()}`);
+      renderTable(data);
+      renderPagination(data);
+    } catch (err) {
+      toast.error("Couldn't load history", err.message);
+    }
+  }
+
+  function renderTable(data) {
+    const wrap = document.getElementById("history-table-wrap");
+    if (!data.items.length) {
+      wrap.innerHTML = `<div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        <h3>No scans found</h3><p>Try adjusting your filters, or start a new scan.</p>
+      </div>`;
+      return;
+    }
+
+    wrap.innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>Project</th><th>Verdict</th><th>Status</th><th>Score</th><th>Findings</th><th>Date</th><th></th></tr></thead>
+        <tbody>
+          ${data.items.map((s) => `
+            <tr data-id="${s.id}" data-status="${s.status}">
+              <td><strong>${escapeHtml(s.name)}</strong><div class="cell-muted" style="font-size:var(--fs-xs); text-transform:capitalize;">${s.scan_type} scan · ${s.total_files} file(s)</div></td>
+              <td>${verdictBadge(s.verdict, s.status)}</td>
+              <td><span class="badge badge-neutral" style="text-transform:capitalize;">${s.status}</span></td>
+              <td>${s.status === "completed" ? s.security_score.toFixed(0) + "/100" : "—"}</td>
+              <td>${s.vulnerability_count}</td>
+              <td class="cell-muted">${formatDate(s.created_at, { withTime: false })}</td>
+              <td>
+                <div class="flex gap-2">
+                  <button class="btn btn-ghost btn-sm" data-action="view" data-id="${s.id}" data-status="${s.status}" title="View">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                  <button class="btn btn-ghost btn-sm" data-action="rerun" data-id="${s.id}" title="Re-run">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 1 3 6.7"/><path d="M3 16v-4h4"/></svg>
+                  </button>
+                  <button class="btn btn-ghost btn-sm" data-action="delete" data-id="${s.id}" title="Delete">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+
+    wrap.querySelectorAll("[data-action='view']").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.id;
+        window.location.href = btn.dataset.status === "completed" ? `results.html?scan_id=${id}` : `scan-progress.html?scan_id=${id}`;
+      })
+    );
+    wrap.querySelectorAll("[data-action='rerun']").forEach((btn) =>
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          const res = await api.post(`/history/${btn.dataset.id}/rerun`);
+          toast.success("Re-run started");
+          window.location.href = `scan-progress.html?scan_id=${res.scan_id}`;
+        } catch (err) {
+          toast.error("Couldn't re-run scan", err.message);
+        }
+      })
+    );
+    wrap.querySelectorAll("[data-action='delete']").forEach((btn) =>
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!confirm("Delete this scan permanently? This cannot be undone.")) return;
+        try {
+          await api.delete(`/history/${btn.dataset.id}`);
+          toast.success("Scan deleted");
+          load();
+        } catch (err) {
+          toast.error("Couldn't delete scan", err.message);
+        }
+      })
+    );
+  }
+
+  function renderPagination(data) {
+    const pag = document.getElementById("pagination");
+    if (data.total_pages <= 1) { pag.innerHTML = `<span class="hint">${data.total} result${data.total !== 1 ? "s" : ""}</span>`; return; }
+
+    let pages = "";
+    for (let i = 1; i <= data.total_pages; i++) {
+      if (i === 1 || i === data.total_pages || Math.abs(i - data.page) <= 1) {
+        pages += `<button class="page-btn ${i === data.page ? "active" : ""}" data-page="${i}">${i}</button>`;
+      } else if (Math.abs(i - data.page) === 2) {
+        pages += `<span style="padding:0 4px; color:var(--text-muted);">…</span>`;
+      }
+    }
+
+    pag.innerHTML = `
+      <span class="hint">${data.total} result${data.total !== 1 ? "s" : ""}</span>
+      <div class="pagination-pages">
+        <button class="page-btn" id="prev-page" ${data.page === 1 ? "disabled" : ""}>‹</button>
+        ${pages}
+        <button class="page-btn" id="next-page" ${data.page === data.total_pages ? "disabled" : ""}>›</button>
+      </div>`;
+
+    pag.querySelectorAll("[data-page]").forEach((b) => b.addEventListener("click", () => { state.page = Number(b.dataset.page); load(); }));
+    document.getElementById("prev-page")?.addEventListener("click", () => { if (state.page > 1) { state.page--; load(); } });
+    document.getElementById("next-page")?.addEventListener("click", () => { if (state.page < data.total_pages) { state.page++; load(); } });
+  }
+
+  function verdictBadge(verdict, status) {
+    if (status !== "completed") return `<span class="verdict-seal pending"><span class="seal-dot"></span>Pending</span>`;
+    return verdict === "secure"
+      ? `<span class="verdict-seal secure"><span class="seal-dot"></span>Secure</span>`
+      : `<span class="verdict-seal vulnerable"><span class="seal-dot"></span>Vulnerable</span>`;
+  }
+
+  load();
+</script>
+</body>
+</html>

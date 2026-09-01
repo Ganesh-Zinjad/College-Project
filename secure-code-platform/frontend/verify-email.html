@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verify Email — Secure Code Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/animations.css">
+<script>
+  (function () {
+    var t = localStorage.getItem("scp_theme") || "dark";
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
+</head>
+<body>
+
+<div class="auth-shell" style="grid-template-columns: 1fr;">
+  <div class="auth-panel">
+    <div class="auth-form-wrap animate-in" style="text-align:center;">
+
+      <div id="loading-state">
+        <div class="spinner" style="width:32px;height:32px; margin: 0 auto var(--sp-4); color:var(--accent);"></div>
+        <h2>Verifying your email…</h2>
+      </div>
+
+      <div id="success-state" style="display:none;">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--verdict-secure)" stroke-width="2" style="margin:0 auto var(--sp-4);"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+        <h2>Email verified</h2>
+        <p style="margin:8px 0 var(--sp-5);">Your account is fully activated. You're all set.</p>
+        <a href="dashboard.html" class="btn btn-primary">Go to dashboard</a>
+      </div>
+
+      <div id="error-state" style="display:none;">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--verdict-vulnerable)" stroke-width="2" style="margin:0 auto var(--sp-4);"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <h2>Verification failed</h2>
+        <p style="margin:8px 0 var(--sp-5);" id="error-message">This link is invalid or has expired.</p>
+        <a href="index.html" class="btn btn-secondary">Back to sign in</a>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { verifyEmail } from "./js/modules/auth.js";
+  import { qs } from "./js/modules/utils.js";
+
+  const token = qs("token");
+
+  (async () => {
+    if (!token) {
+      document.getElementById("loading-state").style.display = "none";
+      document.getElementById("error-state").style.display = "block";
+      return;
+    }
+    try {
+      await verifyEmail(token);
+      document.getElementById("loading-state").style.display = "none";
+      document.getElementById("success-state").style.display = "block";
+    } catch (err) {
+      document.getElementById("loading-state").style.display = "none";
+      document.getElementById("error-state").style.display = "block";
+      document.getElementById("error-message").textContent = err.message;
+    }
+  })();
+</script>
+</body>
+</html>

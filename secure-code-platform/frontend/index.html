@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign In — Secure Code Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/animations.css">
+<script>
+  // Apply saved theme before first paint to avoid a flash of the wrong theme.
+  (function () {
+    var t = localStorage.getItem("scp_theme") || "dark";
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
+</head>
+<body>
+
+<div class="auth-shell">
+  <div class="auth-panel">
+    <div class="auth-form-wrap animate-in">
+      <div class="flex items-center gap-3" style="margin-bottom: var(--sp-6);">
+        <svg width="36" height="36" viewBox="0 0 34 34" fill="none">
+          <path d="M17 3 27 8v9c0 8-6.5 12.5-10 14-3.5-1.5-10-6-10-14V8l10-5Z" fill="var(--accent-dim)" stroke="var(--accent)" stroke-width="1.6"/>
+          <circle cx="17" cy="14" r="3" fill="var(--accent)"/>
+          <circle cx="11" cy="20" r="2" fill="var(--engine-codeql)"/>
+          <circle cx="23" cy="20" r="2" fill="var(--engine-ml)"/>
+        </svg>
+        <div>
+          <div style="font-family:var(--font-display); font-weight:700;">SecureCode</div>
+          <div style="font-size:10px; color:var(--text-muted); letter-spacing:0.06em;">TRIPLE JUDGE ENGINE</div>
+        </div>
+      </div>
+
+      <h1>Welcome back</h1>
+      <p style="margin-top:4px; margin-bottom: var(--sp-6);">Sign in to review your scans and security posture.</p>
+
+      <form id="login-form" novalidate>
+        <div class="field" id="email-field">
+          <label for="email">Email address</label>
+          <input class="input" type="email" id="email" name="email" placeholder="you@company.com" autocomplete="email" required>
+          <span class="error-text">Enter a valid email address</span>
+        </div>
+
+        <div class="field" id="password-field">
+          <label for="password">Password</label>
+          <div class="input-group">
+            <input class="input" type="password" id="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
+            <button type="button" class="input-group-icon" id="toggle-password" aria-label="Show password">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <span class="error-text">Password is required</span>
+        </div>
+
+        <div class="flex items-center justify-between" style="margin-bottom: var(--sp-5);">
+          <div class="checkbox-row">
+            <input type="checkbox" id="remember-me" name="remember">
+            <label for="remember-me">Remember me</label>
+          </div>
+          <a href="forgot-password.html" style="font-size:var(--fs-sm);">Forgot password?</a>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit-btn">Sign in</button>
+      </form>
+
+      <p style="text-align:center; margin-top: var(--sp-5); font-size: var(--fs-sm);">
+        Don't have an account? <a href="register.html">Create one</a>
+      </p>
+    </div>
+  </div>
+
+  <div class="auth-showcase">
+    <div style="max-width:420px; padding: var(--sp-6); position:relative; z-index:1;">
+      <div class="judge-row animate-in delay-1" style="margin-bottom: var(--sp-5);">
+        <div class="judge-seal" data-state="secure">
+          <div class="judge-seal-head"><span class="judge-seal-name">CodeQL</span><span class="badge badge-engine-codeql">Static</span></div>
+          <div style="font-size:var(--fs-xs); color:var(--text-muted);">Deep semantic analysis</div>
+        </div>
+        <div class="judge-seal" data-state="secure">
+          <div class="judge-seal-head"><span class="judge-seal-name">AI Auditor</span><span class="badge badge-engine-ai">Claude</span></div>
+          <div style="font-size:var(--fs-xs); color:var(--text-muted);">Contextual reasoning</div>
+        </div>
+        <div class="judge-seal" data-state="secure">
+          <div class="judge-seal-head"><span class="judge-seal-name">ML Model</span><span class="badge badge-engine-ml">Classifier</span></div>
+          <div style="font-size:var(--fs-xs); color:var(--text-muted);">Pattern confidence</div>
+        </div>
+      </div>
+      <h2 class="animate-in delay-2" style="margin-bottom: var(--sp-3);">Three independent judges. One unanimous verdict.</h2>
+      <p class="animate-in delay-3">A project is marked <strong style="color:var(--verdict-secure)">SECURE</strong> only when static
+        analysis, AI review, and machine learning all agree — eliminating false confidence from any single tool.</p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { login, redirectIfAuthenticated } from "./js/modules/auth.js";
+  import { toast } from "./js/modules/toast.js";
+  import { setButtonLoading, qs } from "./js/modules/utils.js";
+
+  redirectIfAuthenticated();
+
+  if (qs("session_expired")) {
+    toast.warning("Session expired", "Please sign in again to continue.");
+  }
+  if (qs("registered")) {
+    toast.success("Account created", "Please sign in with your new account.");
+  }
+
+  document.getElementById("toggle-password").addEventListener("click", (e) => {
+    const input = document.getElementById("password");
+    const isPassword = input.type === "password";
+    input.type = isPassword ? "text" : "password";
+    e.currentTarget.setAttribute("aria-label", isPassword ? "Hide password" : "Show password");
+  });
+
+  const form = document.getElementById("login-form");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    const remember = document.getElementById("remember-me").checked;
+
+    document.getElementById("email-field").classList.toggle("has-error", !email);
+    document.getElementById("password-field").classList.toggle("has-error", !password);
+    if (!email || !password) return;
+
+    const btn = document.getElementById("login-submit-btn");
+    setButtonLoading(btn, true, "Signing in…");
+    try {
+      await login(email, password, remember);
+      window.location.href = "dashboard.html";
+    } catch (err) {
+      toast.error("Sign in failed", err.message);
+      setButtonLoading(btn, false);
+    }
+  });
+</script>
+</body>
+</html>

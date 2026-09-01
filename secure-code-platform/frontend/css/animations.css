@@ -1,0 +1,73 @@
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(24px); }
+}
+
+@keyframes skeleton-pulse {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes pulse-border {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 180, 84, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(255, 180, 84, 0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* The verdict stamp: scale + rotate-in, used once when a scan's final
+   verdict is revealed on the results page — the single "orchestrated
+   moment" this UI spends its animation budget on. */
+@keyframes stamp-in {
+  0% { opacity: 0; transform: scale(2.2) rotate(-8deg); }
+  60% { opacity: 1; transform: scale(0.96) rotate(2deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+.verdict-stamp-animate { animation: stamp-in 560ms var(--ease-out); }
+
+@keyframes count-up-glow {
+  0% { text-shadow: 0 0 0 transparent; }
+  40% { text-shadow: 0 0 16px var(--accent); }
+  100% { text-shadow: 0 0 0 transparent; }
+}
+.value-glow { animation: count-up-glow 900ms var(--ease-out); }
+
+.animate-in { animation: fade-in-up var(--dur-base) var(--ease-out) both; }
+.delay-1 { animation-delay: 60ms; }
+.delay-2 { animation-delay: 120ms; }
+.delay-3 { animation-delay: 180ms; }
+.delay-4 { animation-delay: 240ms; }

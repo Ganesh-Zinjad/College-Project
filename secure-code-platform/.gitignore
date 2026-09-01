@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Database
+*.db
+*.sqlite3
+
+# Uploads / scan artifacts (user data, not source)
+backend/uploads/
+backend/codeql_dbs/
+
+# ML artifacts are reproducible via scripts/train_ml_model.py — comment the
+# next line out if you'd rather commit them for a zero-setup demo.
+# backend/ml_artifacts/
+
+# Env files
+.env
+*.env.local
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.log

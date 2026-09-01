@@ -1,0 +1,136 @@
+/* ============================================================================
+   DESIGN TOKENS — "Triple Judge" Security Platform
+   Concept: three independent engines (CodeQL / AI / ML) sit as judges on a
+   tribunal. Each renders its own verdict; only unanimous agreement reads as
+   SECURE. The visual language borrows from sealed verdicts and case files —
+   hexagonal judge seals, a stamped verdict badge, dossier-style data tables —
+   rather than generic "hacker green on black".
+   ============================================================================ */
+
+:root {
+  /* ---- Color: dark (default) ---- */
+  --bg-canvas: #0a0e14;
+  --bg-surface: #11161f;
+  --bg-surface-raised: #161d29;
+  --bg-glass: rgba(22, 29, 41, 0.6);
+  --border-hairline: #1e2733;
+  --border-strong: #2a3544;
+
+  --text-primary: #e6edf3;
+  --text-secondary: #aab4c2;
+  --text-muted: #6b7686;
+  --text-on-accent: #04130f;
+
+  /* Brand / verdict accent — teal-cyan, distinct from stock "security green" */
+  --accent: #00d4b8;
+  --accent-strong: #2ef0d2;
+  --accent-dim: rgba(0, 212, 184, 0.14);
+  --accent-border: rgba(0, 212, 184, 0.35);
+
+  /* Verdict states */
+  --verdict-secure: #00d4b8;
+  --verdict-secure-bg: rgba(0, 212, 184, 0.12);
+  --verdict-vulnerable: #ff5470;
+  --verdict-vulnerable-bg: rgba(255, 84, 112, 0.12);
+  --verdict-pending: #ffb454;
+  --verdict-pending-bg: rgba(255, 180, 84, 0.12);
+
+  /* Severity scale (low -> critical) */
+  --sev-low: #5fb3ff;
+  --sev-medium: #ffb454;
+  --sev-high: #ff8a4c;
+  --sev-critical: #ff5470;
+
+  /* Engine identity colors */
+  --engine-codeql: #7c8cff;
+  --engine-ai: #00d4b8;
+  --engine-ml: #ff9f5a;
+
+  /* ---- Typography ---- */
+  --font-display: "Space Grotesk", "Segoe UI", sans-serif;
+  --font-body: "Inter", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-base: 0.9375rem;
+  --fs-md: 1.0625rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.625rem;
+  --fs-2xl: 2.25rem;
+  --fs-3xl: 3rem;
+
+  /* ---- Spacing scale ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* ---- Radius ---- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  /* ---- Elevation / glass ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.45);
+  --glass-blur: blur(16px);
+
+  /* ---- Layout ---- */
+  --sidebar-w: 248px;
+  --sidebar-w-collapsed: 76px;
+  --topbar-h: 64px;
+  --content-max: 1440px;
+
+  /* ---- Motion ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-base: 220ms;
+  --dur-slow: 420ms;
+}
+
+/* ---- Light mode override ---- */
+[data-theme="light"] {
+  --bg-canvas: #f5f7fa;
+  --bg-surface: #ffffff;
+  --bg-surface-raised: #ffffff;
+  --bg-glass: rgba(255, 255, 255, 0.65);
+  --border-hairline: #e1e6ec;
+  --border-strong: #cdd5e0;
+
+  --text-primary: #131a23;
+  --text-secondary: #4b5666;
+  --text-muted: #7c8696;
+  --text-on-accent: #04130f;
+
+  --accent: #00a890;
+  --accent-strong: #00c4a8;
+  --accent-dim: rgba(0, 168, 144, 0.1);
+  --accent-border: rgba(0, 168, 144, 0.3);
+
+  --verdict-secure: #00a890;
+  --verdict-secure-bg: rgba(0, 168, 144, 0.1);
+  --verdict-vulnerable: #e0334f;
+  --verdict-vulnerable-bg: rgba(224, 51, 79, 0.1);
+  --verdict-pending: #c98a1f;
+  --verdict-pending-bg: rgba(201, 138, 31, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(20, 30, 45, 0.08);
+  --shadow-md: 0 8px 24px rgba(20, 30, 45, 0.1);
+  --shadow-lg: 0 16px 48px rgba(20, 30, 45, 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

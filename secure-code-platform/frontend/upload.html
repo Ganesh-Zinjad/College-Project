@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Scan — Secure Code Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/animations.css">
+<script>
+  (function () {
+    var t = localStorage.getItem("scp_theme") || "dark";
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
+<style>
+  .upload-steps { display:flex; align-items:center; gap:8px; margin-bottom: var(--sp-5); }
+  .upload-step { display:flex; align-items:center; gap:8px; font-size:var(--fs-sm); color:var(--text-muted); }
+  .upload-step .step-num { width:24px;height:24px;border-radius:50%;background:var(--bg-surface-raised);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:1px solid var(--border-strong); }
+  .upload-step.active { color:var(--text-primary); }
+  .upload-step.active .step-num { background:var(--accent); color:var(--text-on-accent); border-color:var(--accent); }
+  .upload-step.done .step-num { background:var(--verdict-secure); color:#04130f; border-color:var(--verdict-secure); }
+  .step-sep { width:32px; height:1px; background:var(--border-strong); }
+
+  .file-row { display:flex; align-items:center; gap:var(--sp-3); padding:10px 0; border-bottom:1px solid var(--border-hairline); }
+  .file-row:last-child { border-bottom:none; }
+  .file-row .file-ext-badge { font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:var(--accent-dim); color:var(--accent); font-family:var(--font-mono); flex-shrink:0; }
+
+  /* Feature 1: skipped files panel */
+  .skipped-panel {
+    border:1px solid var(--verdict-pending);
+    background: rgba(255,180,84,0.06);
+    border-radius: var(--radius-md);
+    padding: var(--sp-4);
+    margin-top: var(--sp-4);
+  }
+  .skipped-panel-header {
+    display: flex; align-items:center; gap: 10px; margin-bottom: var(--sp-3);
+    font-weight:600; color: var(--verdict-pending);
+  }
+  .skipped-row {
+    display:flex; align-items:flex-start; gap: var(--sp-3);
+    padding: 7px 0; border-bottom:1px solid rgba(255,180,84,0.15);
+    font-size: var(--fs-xs);
+  }
+  .skipped-row:last-child { border-bottom:none; }
+  .skipped-row .filename { color: var(--text-secondary); font-family: var(--font-mono); word-break:break-all; flex:1; }
+  .skipped-row .reason { color: var(--text-muted); text-align:right; flex-shrink:0; max-width:240px; }
+
+  .scan-type-card { flex:1; padding: var(--sp-4); border:1px solid var(--border-hairline); border-radius:var(--radius-md); cursor:pointer; transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+  .scan-type-card:hover { border-color: var(--accent-border); }
+  .scan-type-card.selected { border-color: var(--accent); background: var(--accent-dim); }
+  .engine-toggle-row { display:flex; align-items:center; justify-content:space-between; padding: var(--sp-3) 0; border-bottom:1px solid var(--border-hairline); }
+  .engine-toggle-row:last-child { border-bottom:none; }
+</style>
+</head>
+<body>
+
+<div id="app-shell-root" class="app-shell"></div>
+
+<script type="module">
+  import { requireAuth } from "./js/modules/auth.js";
+  import { renderShell } from "./js/modules/shell.js";
+  import { api } from "./js/modules/api.js";
+  import { toast } from "./js/modules/toast.js";
+  import { formatBytes, escapeHtml, setButtonLoading } from "./js/modules/utils.js";
+
+  if (!requireAuth()) throw new Error("redirecting");
+  await renderShell({ active: "upload", breadcrumb: [{ label: "Dashboard", href: "dashboard.html" }, { label: "New Scan" }] });
+
+  const content = document.getElementById("page-content");
+  let selectedFiles = [];
+  let currentScanId = null;
+  let uploadedFileList = [];
+  let skippedFileList = [];
+
+  // ---- Supported extensions for client-side pre-filtering (Feature 1) ----
+  const SCANNABLE_EXT = new Set([
+    ".py",".js",".jsx",".ts",".tsx",".java",".go",".rb",".php",
+    ".c",".cpp",".cc",".cxx",".cs",".sql",".sh",".bash",".ps1",
+    ".kt",".swift",".rs",".scala",".pl",".lua",".r"
+  ]);
+
+  function isScannable(filename) {
+    const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+    return SCANNABLE_EXT.has(ext);
+  }
+
+  function skipReasonClient(filename) {
+    const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+    const reasonMap = {
+      ".html":"Markup — no executable logic to audit",
+      ".htm":"Markup — no executable logic to audit",
+      ".css":"Stylesheet — no executable logic to audit",
+      ".scss":"Stylesheet — no executable logic to audit",
+      ".sass":"Stylesheet — no executable logic to audit",
+      ".less":"Stylesheet — no executable logic to audit",
+      ".json":"Data/config file",
+      ".xml":"Data/config file",
+      ".yaml":"Data/config file",
+      ".yml":"Data/config file",
+      ".toml":"Config file",
+      ".md":"Documentation",
+      ".txt":"Text file",
+      ".png":"Image file",".jpg":"Image file",".jpeg":"Image file",".gif":"Image file",".svg":"Image/vector file",
+      ".ico":"Image file",".webp":"Image file",
+      ".pdf":"Binary document",".doc":"Binary document",".docx":"Binary document",
+      ".class":"Compiled bytecode","pyc":"Compiled bytecode",".exe":"Binary executable",
+      ".dll":"Binary library",".so":"Binary library",".jar":"Compiled archive",
+      ".log":"Log file",".lock":"Lock file",".csv":"Data file",
+    };
+    return reasonMap[ext] || `Extension '${ext}' is not in the supported language list`;
+  }
+
+  content.innerHTML = `
+    <div class="page-header"><div><h1>New Scan</h1><p>Upload your code, configure the engines, and let the triple-judge engine vote.</p></div></div>
+
+    <div class="upload-steps">
+      <div class="upload-step active" id="step-indicator-1"><span class="step-num">1</span> Upload</div>
+      <div class="step-sep"></div>
+      <div class="upload-step" id="step-indicator-2"><span class="step-num">2</span> Configure</div>
+      <div class="step-sep"></div>
+      <div class="upload-step" id="step-indicator-3"><span class="step-num">3</span> Review &amp; Start</div>
+    </div>
+
+    <!-- Step 1: Upload -->
+    <div id="step-1" class="card">
+      <div class="dropzone" id="dropzone">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        <h3>Drag &amp; drop files, a folder, or a .zip archive</h3>
+        <p style="margin:6px 0 var(--sp-4);">HTML, CSS, images, and other non-code files are removed automatically</p>
+        <div class="flex gap-3" style="justify-content:center; flex-wrap:wrap;">
+          <button class="btn btn-secondary" id="pick-files-btn">Choose Files</button>
+          <button class="btn btn-secondary" id="pick-folder-btn">Choose Folder</button>
+          <button class="btn btn-secondary" id="pick-zip-btn">Upload .zip</button>
+        </div>
+        <input type="file" id="file-input" multiple style="display:none;">
+        <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none;">
+        <input type="file" id="zip-input" accept=".zip" style="display:none;">
+      </div>
+
+      <!-- Feature 1: supported extensions info strip -->
+      <div style="margin-top:var(--sp-3); padding: var(--sp-3); background:var(--bg-surface); border-radius:var(--radius-md); font-size:var(--fs-xs); color:var(--text-muted);">
+        <strong style="color:var(--text-secondary);">Scannable languages:</strong>
+        Python · JavaScript · TypeScript · Java · Go · Ruby · PHP · C/C++ · C# · SQL · Shell scripts and more.
+        Other file types are automatically skipped with an explanation.
+      </div>
+
+      <!-- File list (accepted) -->
+      <div id="file-list-wrap" style="display:none; margin-top:var(--sp-5);">
+        <div class="flex items-center justify-between" style="margin-bottom:var(--sp-2);">
+          <h4>✅ Accepted files (<span id="file-count">0</span>)</h4>
+          <button class="btn btn-ghost btn-sm" id="clear-files-btn">Clear all</button>
+        </div>
+        <div id="file-list" style="max-height:240px; overflow-y:auto;"></div>
+      </div>
+
+      <!-- Feature 1: Skipped files panel -->
+      <div id="skipped-wrap" style="display:none; margin-top:var(--sp-4);">
+        <div class="skipped-panel">
+          <div class="skipped-panel-header">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span id="skipped-count-label">0 files automatically removed</span>
+          </div>
+          <p style="font-size:var(--fs-xs); color:var(--text-muted); margin-bottom:var(--sp-3);">
+            These files cannot be scanned for security vulnerabilities and were removed automatically. Only source code files are analysed.
+          </p>
+          <div id="skipped-list"></div>
+        </div>
+      </div>
+
+      <!-- Upload progress -->
+      <div id="upload-progress-wrap" style="display:none; margin-top:var(--sp-5);">
+        <div class="flex items-center justify-between" style="margin-bottom:6px; font-size:var(--fs-sm);">
+          <span>Uploading…</span><span id="upload-progress-pct">0%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-bar-fill" id="upload-progress-fill" style="width:0%;"></div></div>
+      </div>
+
+      <div class="flex justify-between" style="margin-top:var(--sp-6);">
+        <span></span>
+        <button class="btn btn-primary" id="to-step-2-btn" disabled>Continue to configuration →</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Configure -->
+    <div id="step-2" class="card" style="display:none;">
+      <h3 style="margin-bottom:var(--sp-2);">Scan type</h3>
+      <p style="margin-bottom:var(--sp-4);">Choose how thorough this scan should be.</p>
+      <div class="flex gap-3" style="margin-bottom:var(--sp-6); flex-wrap:wrap;">
+        <div class="scan-type-card selected" data-type="full">
+          <h4>Full Scan</h4>
+          <p style="font-size:var(--fs-xs); margin-top:4px;">All three engines, every CWE category. Most thorough.</p>
+        </div>
+        <div class="scan-type-card" data-type="quick">
+          <h4>Quick Scan</h4>
+          <p style="font-size:var(--fs-xs); margin-top:4px;">CodeQL + ML only, common high-impact CWEs. Fastest.</p>
+        </div>
+        <div class="scan-type-card" data-type="custom">
+          <h4>Custom Scan</h4>
+          <p style="font-size:var(--fs-xs); margin-top:4px;">Pick your own engines and target specific CWE IDs.</p>
+        </div>
+      </div>
+
+      <h3 style="margin-bottom:var(--sp-4);">Engines</h3>
+      <div style="margin-bottom:var(--sp-6);">
+        <div class="engine-toggle-row">
+          <div class="flex items-center gap-3">
+            <span class="badge badge-engine-codeql">Engine 1</span>
+            <div><strong>CodeQL Static Analysis</strong><div class="hint">Deep semantic source-code analysis</div></div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="engine-codeql" checked><span class="toggle-track"></span></label>
+        </div>
+        <div class="engine-toggle-row">
+          <div class="flex items-center gap-3">
+            <span class="badge badge-engine-ai">Engine 2</span>
+            <div><strong>AI Security Auditor</strong><div class="hint">Claude reviews code for exploitable issues</div></div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="engine-ai" checked><span class="toggle-track"></span></label>
+        </div>
+        <div class="engine-toggle-row">
+          <div class="flex items-center gap-3">
+            <span class="badge badge-engine-ml">Engine 3</span>
+            <div><strong>ML Vulnerability Classifier</strong><div class="hint">Pattern-based confidence scoring</div></div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="engine-ml" checked><span class="toggle-track"></span></label>
+        </div>
+      </div>
+
+      <div id="custom-cwe-wrap" style="display:none;">
+        <div class="field">
+          <label for="target-cwe">Target CWE/CVE IDs (comma-separated)</label>
+          <input class="input" type="text" id="target-cwe" placeholder="e.g. CWE-89, CWE-78, CWE-798">
+          <span class="hint">Leave blank to scan all categories within the enabled engines.</span>
+        </div>
+      </div>
+
+      <div class="field" style="max-width:400px;">
+        <label for="scan-name">Scan name</label>
+        <input class="input" type="text" id="scan-name" placeholder="My Project Scan">
+      </div>
+
+      <div class="flex justify-between" style="margin-top:var(--sp-6);">
+        <button class="btn btn-secondary" id="back-to-step-1-btn">← Back</button>
+        <button class="btn btn-primary" id="to-step-3-btn">Review →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Review & Start -->
+    <div id="step-3" class="card" style="display:none;">
+      <h3 style="margin-bottom:var(--sp-4);">Review &amp; start</h3>
+      <div id="review-summary" class="grid grid-cols-2" style="margin-bottom:var(--sp-6);"></div>
+      <div class="flex justify-between">
+        <button class="btn btn-secondary" id="back-to-step-2-btn">← Back</button>
+        <button class="btn btn-primary" id="start-scan-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 3 14 9-14 9V3Z"/></svg>
+          Start Scan
+        </button>
+      </div>
+    </div>
+  `;
+
+  // ---- File selection / dropzone ----
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("file-input");
+  const folderInput = document.getElementById("folder-input");
+  const zipInput = document.getElementById("zip-input");
+
+  document.getElementById("pick-files-btn").addEventListener("click", () => fileInput.click());
+  document.getElementById("pick-folder-btn").addEventListener("click", () => folderInput.click());
+  document.getElementById("pick-zip-btn").addEventListener("click", () => zipInput.click());
+
+  [fileInput, folderInput, zipInput].forEach((input) => {
+    input.addEventListener("change", (e) => addFiles(Array.from(e.target.files)));
+  });
+
+  ["dragenter","dragover"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add("drag-active"); })
+  );
+  ["dragleave","drop"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove("drag-active"); })
+  );
+  dropzone.addEventListener("drop", (e) => addFiles(Array.from(e.dataTransfer.files || [])));
+
+  function addFiles(files) {
+    if (!files.length) return;
+
+    // ---- Feature 1: Client-side pre-filter ----
+    const preAccepted = [];
+    const preSkipped = [];
+
+    files.forEach((f) => {
+      const name = f.webkitRelativePath || f.name;
+      if (name.toLowerCase().endsWith(".zip")) {
+        // ZIPs go through server-side extraction — accept at client side
+        preAccepted.push(f);
+      } else if (isScannable(name)) {
+        preAccepted.push(f);
+      } else {
+        preSkipped.push({ filename: name, reason: skipReasonClient(name) });
+      }
+    });
+
+    selectedFiles = [...selectedFiles, ...preAccepted];
+
+    // Merge with any existing client-side skipped list
+    const existingSkipped = window._clientSkipped || [];
+    window._clientSkipped = [...existingSkipped, ...preSkipped];
+
+    renderFileList();
+
+    // Show a single toast summarising the auto-filter, not one per file
+    if (preSkipped.length > 0 && preAccepted.length > 0) {
+      toast.warning(
+        `${preSkipped.length} file${preSkipped.length > 1 ? "s" : ""} auto-removed`,
+        `${preSkipped.length} unsupported file${preSkipped.length > 1 ? "s" : ""} removed — only source code files are scanned.`
+      );
+    } else if (preSkipped.length > 0 && preAccepted.length === 0) {
+      toast.error(
+        "No scannable files found",
+        "All selected files are unsupported types. Please upload source code files."
+      );
+    }
+  }
+
+  function renderFileList() {
+    const wrap = document.getElementById("file-list-wrap");
+    const list = document.getElementById("file-list");
+    const skippedWrap = document.getElementById("skipped-wrap");
+    const skippedList = document.getElementById("skipped-list");
+    const clientSkipped = window._clientSkipped || [];
+
+    document.getElementById("file-count").textContent = selectedFiles.length;
+    document.getElementById("to-step-2-btn").disabled = selectedFiles.length === 0;
+
+    // Accepted files
+    if (selectedFiles.length) {
+      wrap.style.display = "block";
+      list.innerHTML = selectedFiles.map((f, i) => {
+        const name = f.webkitRelativePath || f.name;
+        const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
+        return `
+          <div class="file-row">
+            <span class="file-ext-badge">${ext || "?"}</span>
+            <span style="flex:1; font-size:var(--fs-sm); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(name)}</span>
+            <span class="cell-muted" style="font-size:var(--fs-xs);">${formatBytes(f.size)}</span>
+            <button class="btn btn-icon btn-ghost btn-sm" data-remove="${i}" title="Remove">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>`;
+      }).join("");
+
+      list.querySelectorAll("[data-remove]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          selectedFiles.splice(Number(btn.dataset.remove), 1);
+          renderFileList();
+        });
+      });
+    } else {
+      wrap.style.display = "none";
+    }
+
+    // Feature 1: Skipped files panel
+    if (clientSkipped.length) {
+      skippedWrap.style.display = "block";
+      document.getElementById("skipped-count-label").textContent =
+        `${clientSkipped.length} file${clientSkipped.length > 1 ? "s" : ""} automatically removed`;
+      skippedList.innerHTML = clientSkipped.map((s) => `
+        <div class="skipped-row">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" style="flex-shrink:0;margin-top:2px;"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          <span class="filename">${escapeHtml(s.filename)}</span>
+          <span class="reason">${escapeHtml(s.reason)}</span>
+        </div>`).join("");
+    } else {
+      skippedWrap.style.display = "none";
+    }
+  }
+
+  document.getElementById("clear-files-btn").addEventListener("click", () => {
+    selectedFiles = [];
+    window._clientSkipped = [];
+    renderFileList();
+  });
+
+  // ---- Step navigation ----
+  function goToStep(n) {
+    [1, 2, 3].forEach((i) => {
+      document.getElementById(`step-${i}`).style.display = i === n ? "block" : "none";
+      const ind = document.getElementById(`step-indicator-${i}`);
+      ind.classList.toggle("active", i === n);
+      ind.classList.toggle("done", i < n);
+    });
+  }
+
+  document.getElementById("to-step-2-btn").addEventListener("click", async () => {
+    const btn = document.getElementById("to-step-2-btn");
+    setButtonLoading(btn, true, "Uploading…");
+    document.getElementById("upload-progress-wrap").style.display = "block";
+
+    try {
+      const formData = new FormData();
+      selectedFiles.forEach((f) => formData.append("files", f, f.webkitRelativePath || f.name));
+
+      const result = await uploadWithProgress(formData);
+      currentScanId = result.scan_id;
+      uploadedFileList = result.files;
+      skippedFileList = result.skipped_files || [];
+
+      // Feature 1: Show server-side skipped files (from ZIP extraction etc.)
+      const serverSkipped = skippedFileList.length;
+      if (serverSkipped > 0) {
+        // Merge any new server-side skipped entries with the client-side ones already shown
+        const existing = (window._clientSkipped || []).map((s) => s.filename);
+        const newServerSkipped = skippedFileList.filter((s) => !existing.includes(s.filename));
+        window._clientSkipped = [...(window._clientSkipped || []), ...newServerSkipped];
+        renderFileList();
+      }
+
+      const msg = serverSkipped > 0
+        ? `${result.total_files} file(s) accepted · ${serverSkipped} auto-removed`
+        : `${result.total_files} file(s) · ${result.total_lines} lines`;
+      toast.success("Upload complete", msg);
+
+      document.getElementById("scan-name").value =
+        selectedFiles.length === 1 ? selectedFiles[0].name : `Scan of ${result.total_files} files`;
+
+      goToStep(2);
+    } catch (err) {
+      toast.error("Upload failed", err.message);
+    } finally {
+      setButtonLoading(btn, false);
+      document.getElementById("upload-progress-wrap").style.display = "none";
+    }
+  });
+
+  function uploadWithProgress(formData) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const base = window.__API_BASE__ || (location.port === "5500" || location.port === "5501" ? "http://127.0.0.1:8000/api/v1" : "/api/v1");
+      xhr.open("POST", `${base}/upload`);
+      const token = localStorage.getItem("scp_access_token");
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          document.getElementById("upload-progress-fill").style.width = `${pct}%`;
+          document.getElementById("upload-progress-pct").textContent = `${pct}%`;
+        }
+      });
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(JSON.parse(xhr.responseText));
+        } else {
+          let msg = "Upload failed";
+          try { msg = JSON.parse(xhr.responseText)?.error?.message || msg; } catch {}
+          reject(new Error(msg));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Network error during upload"));
+      xhr.send(formData);
+    });
+  }
+
+  document.getElementById("back-to-step-1-btn").addEventListener("click", () => goToStep(1));
+
+  document.querySelectorAll(".scan-type-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      document.querySelectorAll(".scan-type-card").forEach((c) => c.classList.remove("selected"));
+      card.classList.add("selected");
+      const type = card.dataset.type;
+      document.getElementById("custom-cwe-wrap").style.display = type === "custom" ? "block" : "none";
+      if (type === "quick") {
+        document.getElementById("engine-ai").checked = false;
+      } else if (type === "full") {
+        document.getElementById("engine-codeql").checked = true;
+        document.getElementById("engine-ai").checked = true;
+        document.getElementById("engine-ml").checked = true;
+      }
+    });
+  });
+
+  document.getElementById("to-step-3-btn").addEventListener("click", () => {
+    const codeql = document.getElementById("engine-codeql").checked;
+    const ai = document.getElementById("engine-ai").checked;
+    const ml = document.getElementById("engine-ml").checked;
+    if (!codeql && !ai && !ml) {
+      toast.warning("Select at least one engine", "At least one judge must vote on this scan.");
+      return;
+    }
+    renderReview();
+    goToStep(3);
+  });
+
+  document.getElementById("back-to-step-2-btn").addEventListener("click", () => goToStep(2));
+
+  function renderReview() {
+    const scanType = document.querySelector(".scan-type-card.selected").dataset.type;
+    const engines = [
+      document.getElementById("engine-codeql").checked && "CodeQL",
+      document.getElementById("engine-ai").checked && "AI Auditor",
+      document.getElementById("engine-ml").checked && "ML Classifier",
+    ].filter(Boolean);
+    const cwes = document.getElementById("target-cwe").value.trim();
+    const name = document.getElementById("scan-name").value.trim() || "Untitled Scan";
+
+    document.getElementById("review-summary").innerHTML = `
+      <div class="card" style="background:var(--bg-surface);">
+        <div class="hint">Scan name</div><strong>${escapeHtml(name)}</strong>
+      </div>
+      <div class="card" style="background:var(--bg-surface);">
+        <div class="hint">Scan type</div><strong style="text-transform:capitalize;">${scanType}</strong>
+      </div>
+      <div class="card" style="background:var(--bg-surface);">
+        <div class="hint">Engines</div><strong>${engines.join(", ")}</strong>
+      </div>
+      <div class="card" style="background:var(--bg-surface);">
+        <div class="hint">Files to scan</div><strong>${uploadedFileList.length} file(s)</strong>
+        ${skippedFileList.length ? `<div class="hint" style="margin-top:4px;">${skippedFileList.length} auto-removed</div>` : ""}
+      </div>
+      ${cwes ? `<div class="card" style="background:var(--bg-surface); grid-column:span 2;"><div class="hint">Target CWE/CVE IDs</div><strong>${escapeHtml(cwes)}</strong></div>` : ""}
+    `;
+  }
+
+  document.getElementById("start-scan-btn").addEventListener("click", async () => {
+    const btn = document.getElementById("start-scan-btn");
+    setButtonLoading(btn, true, "Starting…");
+    try {
+      const scanType = document.querySelector(".scan-type-card.selected").dataset.type;
+      await api.post("/scan/configure", {
+        scan_id: currentScanId,
+        name: document.getElementById("scan-name").value.trim() || "Untitled Scan",
+        scan_type: scanType,
+        engine_codeql_enabled: document.getElementById("engine-codeql").checked,
+        engine_ai_enabled: document.getElementById("engine-ai").checked,
+        engine_ml_enabled: document.getElementById("engine-ml").checked,
+        target_cwe_ids: document.getElementById("target-cwe").value.trim(),
+      });
+      await api.post(`/scan/${currentScanId}/start`);
+      window.location.href = `scan-progress.html?scan_id=${currentScanId}`;
+    } catch (err) {
+      toast.error("Could not start scan", err.message);
+      setButtonLoading(btn, false);
+    }
+  });
+</script>
+</body>
+</html>
